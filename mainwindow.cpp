@@ -6,7 +6,8 @@
 #include <QPixmap>
 #include <QBuffer>
 #include <QFileDialog>
-
+#include <QMessageBox>
+#include <QDebug>
 
 const char *KEY_SHARED_MEMORY = "shared";
 
@@ -36,12 +37,47 @@ MainWindow::MainWindow(QWidget *parent)
                                                         tr("/home"),
                                                         tr("picture(*.png *.jpg)"));
         QPixmap pixmap(filename);
-        picLabel->setPixmap(pixmap);
+        //picLabel->setPixmap(pixmap);
         QBuffer buffer;
         QDataStream out(&buffer);
         buffer.open(QIODevice::ReadWrite);
         out << pixmap;
 
+        int size = buffer.size();
+        if(!sharedMemory->create(size))
+        {
+            qDebug()<<tr("SharedMemory error: ")
+                   <<sharedMemory->errorString();
+        }
+        else{
+            sharedMemory->lock();
+            char *to = static_cast<char *>(sharedMemory->data());
+            const char * from = buffer.data().constData();
+            memcpy(to, from, qMin(size, sharedMemory->size()));
+            sharedMemory->unlock();
+        }
+
+    });
+
+    QObject::connect(loadBtn, &QPushButton::clicked, [=]() {
+       if(!sharedMemory->attach()) {
+           if(sharedMemory->error() == QSharedMemory::NoError)
+               qDebug()<<"No Error";
+           else
+               qDebug()<<tr("Attach error: ")
+                      <<sharedMemory->errorString();
+       }
+       QBuffer buffer;
+       QPixmap pixmap;
+       QDataStream in(&buffer);
+
+       sharedMemory->lock();
+       buffer.setData(static_cast<char *>(sharedMemory->data()), sharedMemory->size());
+       buffer.open(QIODevice::ReadWrite);
+       in >> pixmap;
+       sharedMemory->unlock();
+       sharedMemory->detach();
+       picLabel->setPixmap(pixmap);
 
     });
 }
